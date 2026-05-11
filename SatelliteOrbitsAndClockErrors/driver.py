@@ -23,7 +23,7 @@ RINEX_FILE = "rinex_obs_files/BRDC00IGS_R_20240310000_01D_MN.rnx"
 SP3_FILE   = "sp3_files/ESA0MGNFIN_20240310000_01D_05M_ORB.SP3"
 
 CONST_ID      = "GLONASS"                    # "GPS" / "GALILEO" / "BEIDOU" / "GLONASS"
-SAT_IDS       = [1, 15, 30]
+SAT_IDS       = [1, 15, 20]
 DATE_UTC      = [2024, 1, 31, 0, 0, 0] 
 DURATION_HRS  = 24.0
 TIME_STEP_SEC = 60.0
@@ -48,7 +48,6 @@ def _solve_kepler(M, e, n_iter=15):
     for _ in range(n_iter):
         E = M + e * np.sin(E)
     return E
-
 
 # ===================== 1. TIME GRID =====================
 gps_week, t_start_sow, _, _ = greg2gps(DATE_UTC)
@@ -86,49 +85,53 @@ for prn, recs in sat_records.items():
         row = lambda k: float(np.asarray(recs[k])[idx])
 
         if CONST_ID == "GLONASS":
-            # 1. Coordinate Time Alignment
-            # GLONASS uses Moscow Time (UTC+3). Leap seconds = 18.
-            t_moscow_target = t - 18.0 + 10800.0
-
-            # 2. Lookup the correct Ephemeris for THIS specific time 't'
-            # We must redefine 'idx' and 'row' inside the loop for every 't'
-            rec_times = np.asarray(recs["gps_millis"]) / 1000.0
-            rec_sow   = rec_times - (gps_week * 604800)
-            idx = int(np.argmin(np.abs(rec_sow - t)))
+            # 1. Time Alignment (GPS Time to UTC)
+            # GLONASS broadcast orbits are referenced to UTC; GPST is 18s ahead
+            LEAP_SECONDS = 18.0
+            t_utc_sow = t - LEAP_SECONDS
             
-            row = lambda k: float(np.asarray(recs[k])[idx])
-            toe_raw = row("t_oe") 
+            # 2. Extract reference epochs directly from available labels
+            t_oe_raw = row("t_oe")
+            t_oc_raw = row("t_oc")
+            
+            # Dynamically align Seconds of Day to current Seconds of Week
+            current_day_start_sow = (t_utc_sow // 86400) * 86400
+            t_oe_sow = current_day_start_sow + (t_oe_raw % 86400)
+            t_oc_sow = current_day_start_sow + (t_oc_raw % 86400)
 
-            # 3. Calculate integration delta (dt) and handle day rollover
-            dt = t_moscow_target - toe_raw
-            if dt > 43200:  dt -= 86400
-            elif dt < -43200: dt += 86400
+            # Robust wrap-around check if the nearest ephemeris crosses midnight boundaries
+            if (t_utc_sow - t_oe_sow) > 43200:    # t_oe belongs to yesterday
+                t_oe_sow += 86400
+                t_oc_sow += 86400
+            elif (t_utc_sow - t_oe_sow) < -43200: # t_oe belongs to tomorrow
+                t_oe_sow -= 86400
+                t_oc_sow -= 86400
 
-            # 4. Prepare Ephemeris Dictionary
-            ephem = {
-                "PositionX": row("X"), "PositionY": row("Y"), "PositionZ": row("Z"),
-                "VelocityX": row("dX"), "VelocityY": row("dY"), "VelocityZ": row("dZ"),
-                "AccelerationX": row("dX2"), "AccelerationY": row("dY2"), "AccelerationZ": row("dZ2"),
-                "t_oe": toe_raw, 
+            # 3. Scale library SI units (meters) down to native RINEX units (km)
+            # CRITICAL: The helper script integrates strictly in km and km/s
+            M2KM = 1.0 / 1000.0
+            ephem_data = {
+                "PositionX":     row("X") * M2KM, 
+                "PositionY":     row("Y") * M2KM, 
+                "PositionZ":     row("Z") * M2KM,
+                "VelocityX":     row("dX") * M2KM, 
+                "VelocityY":     row("dY") * M2KM, 
+                "VelocityZ":     row("dZ") * M2KM,
+                "AccelerationX": row("dX2") * M2KM, 
+                "AccelerationY": row("dY2") * M2KM, 
+                "AccelerationZ": row("dZ2") * M2KM,
+                "t_oe":          t_oe_sow, 
             }
-            
-            # 5. Call your Runge-Kutta function
-            # We calculate position at (toe_raw + dt)
-            try:
-                x_km, y_km, z_km = glonass_coordinates(ephem, toe_raw + dt)
-                
-                # Convert km to m for comparison with SP3
-                pos_arr[i] = [np.squeeze(x_km) * 1000.0, 
-                              np.squeeze(y_km) * 1000.0, 
-                              np.squeeze(z_km) * 1000.0]
-                
-            except Exception as e:
-                pos_arr[i] = [np.nan, np.nan, np.nan]
-            
-            # 6. GLONASS Clock Correction
-            tau_n = -row("SVclockBias")  # Note the negative sign common in RINEX
-            gamma_n = row("SVrelFreqBias")
-            clk_arr[i] = tau_n + gamma_n * dt
+
+            # 4. Propagate orbit (helper receives km and returns km)
+            gx, gy, gz = glonass_coordinates(ephem_data, t_utc_sow)
+    
+            # 5. Convert output back to meters for SP3 comparison
+            pos_arr[i] = np.array([gx, gy, gz]).flatten() * 1000.0
+
+            # 6. Clock correction (tau_n bias and gamma_n drift)
+            dt_clk = t_utc_sow - t_oc_sow
+            clk_arr[i] = row("SVclockBias") + row("SVclockDrift") * dt_clk
 
         else:  # GPS / Galileo / BeiDou
             e, sqrt_a  = row("e"), row("sqrtA")
