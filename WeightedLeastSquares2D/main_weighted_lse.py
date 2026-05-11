@@ -1,8 +1,12 @@
+import os
 import numpy as np
 import matplotlib.pyplot as plt
 from error_ellipse import error_ellipse
 
-# --- Integrated Data Generation ---
+# --- Ensure Output Directory Exists ---
+output_dir = "plots"
+os.makedirs(output_dir, exist_ok=True)
+
 def data_generation(problem_type, example_number):
     x0_true = 4.4
     y0_true = 3.0
@@ -24,7 +28,6 @@ def data_generation(problem_type, example_number):
     GS = np.column_stack((GS_x, GS_y))
     GS_n = len(GS_x)
     
-    # Universally initialize states to prevent undefined variables
     ctau_true = 0.0
     R_ctau = 0.0
     Dx = np.zeros(3 if problem_type == 2 else 2)
@@ -36,10 +39,8 @@ problem_type = 2     # 1 = without clock bias; 2 = with receiver clock bias
 example_number = 1   # 1 = good geometry; 2 = aligned stations
 weighted = 1         # 0 = no weights; 1 = identity variance; 2 = diagonal approx
 
-# Load Data
 x0_true, y0_true, GS, GS_n, p_meas, Dx, R_pos, ctau_true, R_ctau = data_generation(problem_type, example_number)
 
-# --- Initialization ---
 tol = 0.1
 stop_check = 1.0
 k_max = 15
@@ -66,59 +67,48 @@ elif problem_type == 2:
     Cxx_tot = np.zeros((3, 3, k_max))
     Q_tot = np.zeros((3, 3, k_max))
 
-# --- Main Iterative Loop ---
 while stop_check > tol and k < k_max:
-    # Distances and pseudoranges
     d_calc = np.sqrt((GS[:, 0] - R_pos[0])**2 + (GS[:, 1] - R_pos[1])**2)
     p_calc = d_calc + R_ctau
     
-    # Pre-fit residuals
     Y_res = p_meas - p_calc
     r_norm_pre[k] = np.dot(Y_res, Y_res)
     mean_Y[k] = np.mean(Y_res)
     var_Y[k] = (1.0 / (GS_n - 1)) * np.dot(Y_res, Y_res)
     
-    # Design matrix H formulation
     H[:, 0] = -(GS[:, 0] - R_pos[0]) / d_calc
     H[:, 1] = -(GS[:, 1] - R_pos[1]) / d_calc
     if problem_type == 2:
         H[:, 2] = 1.0
         
-    # Weights and Covariance (Cpp) allocation
     if weighted == 0:
         W = np.eye(GS_n)
         Cpp = var_Y[k] * np.eye(GS_n)
     elif weighted == 1:
         Cpp = var_Y[k] * np.eye(GS_n)
-        W = np.diag(1.0 / np.diagonal(Cpp))  # Fast inverse for diagonal matrices
+        W = np.diag(1.0 / np.diagonal(Cpp))
     elif weighted == 2:
         Cpp = np.diag(Y_res**2)
         W = np.diag(1.0 / np.diagonal(Cpp))
         
-    # Solve Weighted Normal Equations
     AA = H.T @ W @ H
     bb = H.T @ W @ Y_res
     Dx_new = np.linalg.solve(AA, bb)
     
-    # Evaluate convergence on planimetric components
     stop_check = np.linalg.norm(Dx_new[0:2])
     
-    # Update state vectors
     Dx = Dx_new
     R_pos = R_pos + Dx[0:2]
     Positions[k + 1, :] = R_pos
     Dx_tot[k, :] = Dx
     
-    # Update clock bias
     if problem_type == 2:
         R_ctau = R_ctau + Dx[2]
         estimated_ctau[k + 1] = R_ctau
         
-    # Evaluate post-fit residuals
     res_post = Y_res - H @ Dx
     r_norm_post[k] = np.dot(res_post, res_post)
     
-    # Compute Cofactor (Q) and Covariance (Cxx) matrices
     Q = np.linalg.inv(H.T @ H)
     Q_tot[:, :, k] = Q
     
@@ -130,7 +120,6 @@ while stop_check > tol and k < k_max:
     Cxx_tot[:, :, k] = Cxx
     k += 1
 
-# Truncate arrays to completed iterations
 Positions = Positions[0:k + 1, :]
 r_norm_pre = r_norm_pre[0:k]
 r_norm_post = r_norm_post[0:k]
@@ -142,9 +131,10 @@ Cxx_tot = Cxx_tot[:, :, 0:k]
 if problem_type == 2:
     estimated_ctau = estimated_ctau[0:k + 1]
 
-# --- Visualization Dashboard ---
+# --- Visualization Dashboard & Saving ---
+
 # Chart 1: Planimetric Convergence
-plt.figure(figsize=(7, 7))
+fig1 = plt.figure(figsize=(7, 7))
 plt.plot(Positions[:, 0], Positions[:, 1], 'k+--', label='Trajectory')
 plt.plot(Positions[0, 0], Positions[0, 1], 'mo--', linewidth=2, label='Initial Guess')
 plt.plot(Positions[-1, 0], Positions[-1, 1], 'bx--', linewidth=2, label='Final Estimate')
@@ -157,10 +147,11 @@ plt.axis('equal')
 plt.grid(True, linestyle=':', alpha=0.6)
 plt.legend()
 plt.tight_layout()
+fig1.savefig(os.path.join(output_dir, f"weighted_planimetric_ex{example_number}.png"), dpi=300)
 
 # Chart 2: Clock Bias Convergence
 if problem_type == 2:
-    plt.figure(figsize=(8, 4))
+    fig2 = plt.figure(figsize=(8, 4))
     plt.plot(range(k + 1), estimated_ctau, 'r--x', label='Estimated ctau')
     plt.plot(range(k + 1), ctau_true * np.ones(k + 1), 'b-', label='True ctau')
     plt.xlabel('Iteration')
@@ -169,9 +160,10 @@ if problem_type == 2:
     plt.grid(True, linestyle=':', alpha=0.6)
     plt.legend()
     plt.tight_layout()
+    fig2.savefig(os.path.join(output_dir, f"weighted_clockbias_ex{example_number}.png"), dpi=300)
 
 # Chart 3: Position Uncertainties (Confidence Ellipses)
-plt.figure(figsize=(7, 7))
+fig3 = plt.figure(figsize=(7, 7))
 plt.plot(Positions[:, 0], Positions[:, 1], 'k+--', label='Trajectory')
 plt.plot(Positions[0, 0], Positions[0, 1], 'mo--', linewidth=2, label='Initial Guess')
 plt.plot(Positions[-1, 0], Positions[-1, 1], 'bx--', linewidth=2, label='Final Estimate')
@@ -188,9 +180,10 @@ plt.axis('equal')
 plt.grid(True, linestyle=':', alpha=0.6)
 plt.legend()
 plt.tight_layout()
+fig3.savefig(os.path.join(output_dir, f"weighted_ellipses_ex{example_number}.png"), dpi=300)
 
 # Chart 4: Residual Comparison
-plt.figure(figsize=(8, 4))
+fig4 = plt.figure(figsize=(8, 4))
 plt.plot(range(k), r_norm_pre, 'r--o', label='Pre-fit Residual Norm')
 plt.plot(range(1, k + 1), r_norm_post, 'b--x', label='Post-fit Residual Norm')
 plt.title('Residual Norm Minimization Over Iterations')
@@ -199,5 +192,7 @@ plt.ylabel('Sum of Squared Residuals [cm²]')
 plt.grid(True, linestyle=':', alpha=0.6)
 plt.legend()
 plt.tight_layout()
+fig4.savefig(os.path.join(output_dir, f"weighted_residuals_ex{example_number}.png"), dpi=300)
 
+print(f"\nAll plots saved successfully into the '{output_dir}' folder.")
 plt.show()

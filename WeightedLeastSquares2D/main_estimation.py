@@ -1,6 +1,11 @@
+import os
 import numpy as np
 import matplotlib.pyplot as plt
 import data_generation 
+
+# --- Ensure Output Directory Exists ---
+output_dir = "plots"
+os.makedirs(output_dir, exist_ok=True)
 
 # --- Configuration ---
 problem_type = 1    # 1 = without the receiver clock bias
@@ -93,4 +98,10 @@ plt.grid(True, linestyle=':', alpha=0.6)
 plt.legend(loc='best')
 plt.axis('equal')
 plt.tight_layout()
+
+# Save plot to folder
+save_path = os.path.join(output_dir, f"unweighted_convergence_ex{example_number}.png")
+plt.savefig(save_path, dpi=300, bbox_inches='tight')
+print(f"\nPlot saved successfully to: {save_path}")
+
 plt.show()
