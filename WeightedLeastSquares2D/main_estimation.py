@@ -8,8 +8,8 @@ output_dir = "plots"
 os.makedirs(output_dir, exist_ok=True)
 
 # --- Configuration ---
-problem_type = 1    # 1 = without the receiver clock bias
-example_number = 1  # 1 = good geometry; 2 = aligned stations
+problem_type = 2    # 1 = without the receiver clock bias
+example_number = 2  # 1 = good geometry; 2 = aligned stations
 
 # Load data
 x0_true, y0_true, GS, GS_n, p_meas, Dx, R_pos, ctau_true, R_ctau = data_generation.data_generation(problem_type, example_number)

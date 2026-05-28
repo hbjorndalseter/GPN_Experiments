@@ -1,0 +1,15 @@
+# Ignore all top-level folders
+/*/
+
+# Keep only this folder
+!/WeightedLeastSquares2D/
+
+# Keep everything inside the allowed folder
+!/WeightedLeastSquares2D/**
+
+# Optional: still ignore Python/cache/editor files inside the allowed folder
+WeightedLeastSquares2D/__pycache__/
+WeightedLeastSquares2D/.vscode/
+WeightedLeastSquares2D/**/*.pyc
+WeightedLeastSquares2D/**/*.pyo
+WeightedLeastSquares2D/**/*.pyd
