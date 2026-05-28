@@ -1,15 +1,14 @@
-# Ignore all top-level folders
-/*/
+# Ignore everything
+*
 
-/SatelliteOrbitsAndClockErrors/
+# But keep the .gitignore file itself
+!.gitignore
 
-# Keep only this folder
-!/WeightedLeastSquares2D/
+# Keep only the selected project folder
+!WeightedLeastSquares2D/
+!WeightedLeastSquares2D/**
 
-# Keep everything inside the allowed folder
-!/WeightedLeastSquares2D/**
-
-# Optional: still ignore Python/cache/editor files inside the allowed folder
+# Optional ignores inside the kept folder
 WeightedLeastSquares2D/__pycache__/
 WeightedLeastSquares2D/.vscode/
 WeightedLeastSquares2D/**/*.pyc
