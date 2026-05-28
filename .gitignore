@@ -1,6 +1,8 @@
 # Ignore all top-level folders
 /*/
 
+/SatelliteOrbitsAndClockErrors/
+
 # Keep only this folder
 !/WeightedLeastSquares2D/
 
